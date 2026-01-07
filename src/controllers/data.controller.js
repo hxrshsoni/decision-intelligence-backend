@@ -5,16 +5,12 @@ const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
 
-
-
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+  logger.success('Created uploads directory');
 }
-
-
-
 
 class DataController {
   // Upload clients CSV
@@ -39,9 +35,8 @@ class DataController {
 
       // Delete uploaded file
       fs.unlink(filePath, (err) => {
-        if (err) console.error('Failed to delete temp file:', err);
+        if (err) logger.error('Failed to delete temp file:', err);
       });
-      
 
       res.json({
         success: true,
@@ -90,7 +85,9 @@ class DataController {
       const result = await DataIngestion.insertEngagements(userId, normalizedData, clientMap);
 
       // Delete uploaded file
-      fs.unlinkSync(filePath);
+      fs.unlink(filePath, (err) => {
+        if (err) logger.error('Failed to delete temp file:', err);
+      });
 
       res.json({
         success: true,
@@ -139,7 +136,9 @@ class DataController {
       const result = await DataIngestion.insertPayments(userId, normalizedData, clientMap);
 
       // Delete uploaded file
-      fs.unlinkSync(filePath);
+      fs.unlink(filePath, (err) => {
+        if (err) logger.error('Failed to delete temp file:', err);
+      });
 
       res.json({
         success: true,
@@ -188,7 +187,9 @@ class DataController {
       const result = await DataIngestion.insertWorkRequests(userId, normalizedData, clientMap);
 
       // Delete uploaded file
-      fs.unlinkSync(filePath);
+      fs.unlink(filePath, (err) => {
+        if (err) logger.error('Failed to delete temp file:', err);
+      });
 
       res.json({
         success: true,
