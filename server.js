@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
 const Database = require('./src/db');
@@ -20,7 +19,6 @@ if (!fs.existsSync(uploadsDir)) {
 const app = express();
 
 // Middleware
-app.use(helmet());
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
