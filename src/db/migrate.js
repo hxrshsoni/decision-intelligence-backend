@@ -2,22 +2,26 @@ const Database = require('../config/database');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
+require('dotenv').config();
 
 async function runMigration() {
   try {
+    // Connect to database
     await Database.connect();
     
-    const sqlPath = path.join(__dirname, 'schema.sql');
+    // Read SQL file
+    const sqlPath = path.join(__dirname, '../../database_schema.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
     
+    // Execute SQL
     await Database.query(sql);
     
-    logger.info('✅ Database migration completed');
-    return true;
+    logger.info('✅ Database migration completed successfully');
+    process.exit(0);
   } catch (error) {
     logger.error('❌ Migration failed:', error);
-    throw error;
+    process.exit(1);
   }
 }
 
-module.exports = { runMigration };
+runMigration();

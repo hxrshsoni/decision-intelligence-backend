@@ -6,25 +6,23 @@ class Database {
     this.pool = null;
   }
 
-  // Initialize database connection
   async connect() {
     try {
       this.pool = new Pool({
         connectionString: process.env.DATABASE_URL,
-        ssl: process.env.NODE_ENV === 'production' ? {
+        ssl: {
           rejectUnauthorized: false
-        } : false,
+        },
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
+        connectionTimeoutMillis: 10000,
+        statement_timeout: 30000
       });
 
-      // Test connection
       const client = await this.pool.connect();
       logger.info('✅ Database connected successfully');
       client.release();
 
-      // Handle pool errors
       this.pool.on('error', (err) => {
         logger.error('Unexpected database pool error:', err);
       });
@@ -36,7 +34,6 @@ class Database {
     }
   }
 
-  // Execute query
   async query(text, params) {
     if (!this.pool) {
       throw new Error('Database not initialized. Call connect() first.');
@@ -55,7 +52,7 @@ class Database {
     }
   }
 
-  // Get a client from pool for transactions
+  // THIS METHOD WAS MISSING - ADD IT!
   async getClient() {
     if (!this.pool) {
       throw new Error('Database not initialized. Call connect() first.');
@@ -63,7 +60,6 @@ class Database {
     return await this.pool.connect();
   }
 
-  // Close all connections
   async close() {
     if (this.pool) {
       await this.pool.end();
