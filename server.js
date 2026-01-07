@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const Database = require('./src/db');
+// const Database = require('./src/db');
+const Database = require('./config/database'); 
 const logger = require('./src/utils/logger');
 const fs = require('fs');
 const path = require('path');
