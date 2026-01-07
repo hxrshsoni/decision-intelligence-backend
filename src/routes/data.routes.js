@@ -48,6 +48,6 @@ router.post('/upload/work-requests', upload.single('file'), DataController.uploa
 
 // Get data routes
 router.get('/clients', DataController.getClients);
-router.get('/summary', DataController.getSummary);
+router.get('/summary', DataController.getDataSummary);  // ✅ FIXED LINE
 
 module.exports = router;
