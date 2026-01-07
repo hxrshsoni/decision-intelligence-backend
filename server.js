@@ -1,91 +1,62 @@
 const express = require('express');
 const cors = require('cors');
-const cron = require('node-cron');
-const config = require('./src/config/env');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const dotenv = require('dotenv');
 const Database = require('./src/db');
-const errorHandler = require('./src/middleware/error.middleware');
 const logger = require('./src/utils/logger');
-const routes = require('./src/routes');
-const WeeklyReportJob = require('./src/jobs/weeklyReport');
+const fs = require('fs');
+const path = require('path');
+
+dotenv.config();
+
+// Create uploads directory at startup
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('✅ Created uploads directory at startup');
+}
 
 const app = express();
 
 // Middleware
+app.use(helmet());
 app.use(cors({
-  origin: config.frontendUrl,
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
+app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging
-app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`);
-  next();
-});
-
-// Health check route
+// Routes
 app.get('/health', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Decision Intelligence Platform API is running',
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Mount API routes
-app.use('/api', routes);
+app.use('/api/auth', require('./src/routes/auth.routes'));
+app.use('/api/data', require('./src/routes/data.routes'));
+app.use('/api/reports', require('./src/routes/report.routes'));
 
-// Error handling middleware (must be last)
-app.use(errorHandler);
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
+// Error handling
+app.use((err, req, res, next) => {
+  logger.error('Error:', err);
+  res.status(err.status || 500).json({
     success: false,
-    error: 'Route not found'
+    error: err.message || 'Internal server error'
   });
 });
 
-// Setup Cron Jobs
-const setupCronJobs = () => {
-  // Run every Monday at 9:00 AM
-  cron.schedule('0 9 * * 1', async () => {
-    logger.info('🕐 Cron job triggered: Weekly Report Generation');
-    try {
-      await WeeklyReportJob.runForAllUsers();
-    } catch (error) {
-      logger.error('Cron job failed:', error);
-    }
-  });
-
-  logger.success('✅ Cron jobs scheduled');
-  logger.info('📅 Weekly reports: Every Monday at 9:00 AM');
-};
+const PORT = process.env.PORT || 5000;
 
 // Start server
 const startServer = async () => {
   try {
-    // Test database connection
-    const dbConnected = await Database.testConnection();
-    if (!dbConnected) {
-      throw new Error('Database connection failed');
-    }
-
-    // Initialize database schema
-    await Database.initialize();
-
-    // Setup cron jobs
-    setupCronJobs();
-
-    // Start listening
-    app.listen(config.port, () => {
-      logger.success(`🚀 Server running on port ${config.port}`);
-      logger.info(`Environment: ${config.nodeEnv}`);
-      logger.info(`API: http://localhost:${config.port}/api`);
-      logger.info(`Auth endpoints ready at /api/auth`);
-      logger.info(`Data endpoints ready at /api/data`);
-      logger.info(`Reports endpoints ready at /api/reports`);
+    await Database.connect();
+    logger.success('Database connected');
+    
+    app.listen(PORT, '0.0.0.0', () => {
+      logger.success(`Server running on port ${PORT}`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
@@ -94,5 +65,3 @@ const startServer = async () => {
 };
 
 startServer();
-
-module.exports = app;
