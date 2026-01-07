@@ -1,83 +1,20 @@
-const RuleEngine = require('../engine/ruleEngine');
-const Scorer = require('../engine/scorer');
+const DecisionEngine = require('../services/decisionEngine');
 const Database = require('../db');
 const logger = require('../utils/logger');
 
-class ReportsController {
-  // Generate report on-demand
+class ReportController {
+  // Generate new report
   static async generateReport(req, res, next) {
     try {
       const userId = req.user.id;
 
-      logger.info('Generating on-demand report for user:', userId);
-
-      // Initialize rule engine
-      const engine = new RuleEngine();
-
-      // Evaluate all clients
-      const triggeredRules = await engine.evaluateAllClients(userId);
-
-      // Separate warnings and opportunities
-      const warnings = triggeredRules.filter(r => r.category === 'risk');
-      const opportunities = triggeredRules.filter(r => r.category === 'opportunity');
-
-      // Calculate risk score
-      const riskScore = Scorer.calculateRiskScore(triggeredRules);
-      const severityBand = Scorer.getSeverityBand(riskScore);
-      const severityLabel = Scorer.getSeverityLabel(riskScore);
-
-      // Limit output
-      const limited = Scorer.limitOutput(warnings, opportunities);
-
-      // Get previous week's score for comparison
-      const previousReport = await Database.query(
-        `SELECT total_risk_score 
-         FROM weekly_reports 
-         WHERE user_id = $1 
-         ORDER BY report_date DESC 
-         LIMIT 1`,
-        [userId]
-      );
-
-      const previousScore = previousReport.rows[0]?.total_risk_score || null;
-      const scoreChange = Scorer.calculateScoreChange(riskScore, previousScore);
-
-      // Save report
-      const reportResult = await Database.query(
-        `INSERT INTO weekly_reports (user_id, report_date, total_risk_score, triggered_rules, created_at)
-         VALUES ($1, NOW(), $2, $3, NOW())
-         RETURNING id`,
-        [userId, riskScore, JSON.stringify(triggeredRules)]
-      );
-
-      const reportId = reportResult.rows[0].id;
-
-      // Save rule triggers
-      for (const rule of triggeredRules) {
-        await Database.query(
-          `INSERT INTO rule_triggers (report_id, client_id, rule_id, score_contribution, explanation, created_at)
-           VALUES ($1, $2, $3, $4, $5, NOW())`,
-          [reportId, rule.client_id, rule.rule_id, rule.weight, rule.explanation]
-        );
-      }
-
-      logger.success('Report generated successfully:', { reportId, riskScore });
+      // Run decision engine
+      const report = await DecisionEngine.generateReport(userId);
 
       res.json({
         success: true,
         message: 'Report generated successfully',
-        data: {
-          reportId: reportId,
-          riskScore: riskScore,
-          severityBand: severityBand,
-          severityLabel: severityLabel,
-          scoreChange: scoreChange,
-          warnings: limited.warnings,
-          opportunities: limited.opportunities,
-          totalWarnings: warnings.length,
-          totalOpportunities: opportunities.length,
-          generatedAt: new Date().toISOString()
-        }
+        data: report
       });
     } catch (error) {
       logger.error('Generate report error:', error);
@@ -91,10 +28,9 @@ class ReportsController {
       const userId = req.user.id;
 
       const result = await Database.query(
-        `SELECT id, report_date, total_risk_score, triggered_rules, created_at
-         FROM weekly_reports
-         WHERE user_id = $1
-         ORDER BY report_date DESC
+        `SELECT * FROM reports 
+         WHERE user_id = $1 
+         ORDER BY generated_at DESC 
          LIMIT 1`,
         [userId]
       );
@@ -102,32 +38,25 @@ class ReportsController {
       if (result.rows.length === 0) {
         return res.json({
           success: true,
-          message: 'No reports found. Generate your first report!',
-          data: null
+          data: null,
+          message: 'No reports found'
         });
       }
 
       const report = result.rows[0];
-      const triggeredRules = report.triggered_rules;
-
-      const warnings = triggeredRules.filter(r => r.category === 'risk');
-      const opportunities = triggeredRules.filter(r => r.category === 'opportunity');
-
-      const limited = Scorer.limitOutput(warnings, opportunities);
+      
+      // Get warnings and opportunities
+      const [warnings, opportunities] = await Promise.all([
+        Database.query('SELECT * FROM report_warnings WHERE report_id = $1', [report.id]),
+        Database.query('SELECT * FROM report_opportunities WHERE report_id = $1', [report.id])
+      ]);
 
       res.json({
         success: true,
         data: {
-          reportId: report.id,
-          reportDate: report.report_date,
-          riskScore: report.total_risk_score,
-          severityBand: Scorer.getSeverityBand(report.total_risk_score),
-          severityLabel: Scorer.getSeverityLabel(report.total_risk_score),
-          warnings: limited.warnings,
-          opportunities: limited.opportunities,
-          totalWarnings: warnings.length,
-          totalOpportunities: opportunities.length,
-          generatedAt: report.created_at
+          ...report,
+          warnings: warnings.rows,
+          opportunities: opportunities.rows
         }
       });
     } catch (error) {
@@ -136,50 +65,37 @@ class ReportsController {
     }
   }
 
-  // Get report history
-  static async getReportHistory(req, res, next) {
+  // Get all reports
+  static async getAllReports(req, res, next) {
     try {
       const userId = req.user.id;
-      const limit = parseInt(req.query.limit) || 10;
 
       const result = await Database.query(
-        `SELECT id, report_date, total_risk_score, created_at
-         FROM weekly_reports
-         WHERE user_id = $1
-         ORDER BY report_date DESC
-         LIMIT $2`,
-        [userId, limit]
+        `SELECT id, risk_score, severity_band, severity_label, generated_at 
+         FROM reports 
+         WHERE user_id = $1 
+         ORDER BY generated_at DESC`,
+        [userId]
       );
-
-      const history = result.rows.map(report => ({
-        reportId: report.id,
-        reportDate: report.report_date,
-        riskScore: report.total_risk_score,
-        severityBand: Scorer.getSeverityBand(report.total_risk_score),
-        severityLabel: Scorer.getSeverityLabel(report.total_risk_score),
-        createdAt: report.created_at
-      }));
 
       res.json({
         success: true,
-        data: history
+        data: result.rows
       });
     } catch (error) {
-      logger.error('Get report history error:', error);
+      logger.error('Get all reports error:', error);
       next(error);
     }
   }
 
-  // Get specific report by ID
+  // Get report by ID
   static async getReportById(req, res, next) {
     try {
       const userId = req.user.id;
       const reportId = req.params.id;
 
       const result = await Database.query(
-        `SELECT id, report_date, total_risk_score, triggered_rules, created_at
-         FROM weekly_reports
-         WHERE id = $1 AND user_id = $2`,
+        'SELECT * FROM reports WHERE id = $1 AND user_id = $2',
         [reportId, userId]
       );
 
@@ -191,22 +107,19 @@ class ReportsController {
       }
 
       const report = result.rows[0];
-      const triggeredRules = report.triggered_rules;
 
-      const warnings = triggeredRules.filter(r => r.category === 'risk');
-      const opportunities = triggeredRules.filter(r => r.category === 'opportunity');
+      // Get warnings and opportunities
+      const [warnings, opportunities] = await Promise.all([
+        Database.query('SELECT * FROM report_warnings WHERE report_id = $1', [report.id]),
+        Database.query('SELECT * FROM report_opportunities WHERE report_id = $1', [report.id])
+      ]);
 
       res.json({
         success: true,
         data: {
-          reportId: report.id,
-          reportDate: report.report_date,
-          riskScore: report.total_risk_score,
-          severityBand: Scorer.getSeverityBand(report.total_risk_score),
-          severityLabel: Scorer.getSeverityLabel(report.total_risk_score),
-          warnings: Scorer.sortByPriority(warnings),
-          opportunities: Scorer.sortByPriority(opportunities),
-          generatedAt: report.created_at
+          ...report,
+          warnings: warnings.rows,
+          opportunities: opportunities.rows
         }
       });
     } catch (error) {
@@ -216,4 +129,4 @@ class ReportsController {
   }
 }
 
-module.exports = ReportsController;
+module.exports = ReportController;

@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-// const morgan = require('morgan');
+const morgan = require('morgan');
 const dotenv = require('dotenv');
 const Database = require('./src/db');
 const logger = require('./src/utils/logger');
@@ -23,7 +23,7 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
-// app.use(morgan('combined'));
+app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

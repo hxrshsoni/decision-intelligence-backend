@@ -1,8 +1,6 @@
 const express = require('express');
-const ReportsController = require('../controllers/reports.controller');
+const ReportController = require('../controllers/report.controller');
 const authMiddleware = require('../middleware/auth.middleware');
-const WeeklyReportJob = require('../jobs/weeklyReport');
-const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -10,34 +8,15 @@ const router = express.Router();
 router.use(authMiddleware);
 
 // Generate new report
-router.post('/generate', ReportsController.generateReport);
+router.post('/generate', ReportController.generateReport);
 
 // Get latest report
-router.get('/latest', ReportsController.getLatestReport);
+router.get('/latest', ReportController.getLatestReport);
 
-// Get report history
-router.get('/history', ReportsController.getReportHistory);
+// Get all reports for user
+router.get('/', ReportController.getAllReports);
 
 // Get specific report by ID
-router.get('/:id', ReportsController.getReportById);
-
-// Manual trigger for weekly report (for testing)
-router.post('/trigger-weekly', async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    logger.info('Manual weekly report trigger for user:', userId);
-    
-    const report = await WeeklyReportJob.runForUser(userId);
-    
-    res.json({
-      success: true,
-      message: 'Weekly report generated and email sent!',
-      data: report
-    });
-  } catch (error) {
-    logger.error('Manual trigger failed:', error);
-    next(error);
-  }
-});
+router.get('/:id', ReportController.getReportById);
 
 module.exports = router;
