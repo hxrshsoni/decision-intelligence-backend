@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const morgan = require('morgan');
 const dotenv = require('dotenv');
 const Database = require('./src/db');
 const logger = require('./src/utils/logger');
@@ -23,9 +22,14 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
-app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Simple request logging middleware (replaces morgan)
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
 
 // Routes
 app.get('/health', (req, res) => {
@@ -55,6 +59,7 @@ const startServer = async () => {
     
     app.listen(PORT, '0.0.0.0', () => {
       logger.success(`Server running on port ${PORT}`);
+      console.log(`🚀 Backend ready at http://localhost:${PORT}`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
