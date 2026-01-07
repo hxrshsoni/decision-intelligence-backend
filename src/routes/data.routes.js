@@ -1,15 +1,23 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const DataController = require('../controllers/data.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 
 const router = express.Router();
 
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('✅ Created uploads directory');
+}
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -40,6 +48,6 @@ router.post('/upload/work-requests', upload.single('file'), DataController.uploa
 
 // Get data routes
 router.get('/clients', DataController.getClients);
-router.get('/summary', DataController.getDataSummary);
+router.get('/summary', DataController.getSummary);
 
 module.exports = router;
