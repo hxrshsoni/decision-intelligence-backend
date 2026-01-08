@@ -1,8 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-// const Database = require('./src/db');
-const Database = require('./src/config/database'); 
+
+const db = require('./src/config/database'); 
+
 const logger = require('./src/utils/logger');
 const fs = require('fs');
 const path = require('path');
@@ -55,7 +56,7 @@ const PORT = process.env.PORT || 5000;
 // Start server
 const startServer = async () => {
   try {
-    await Database.connect();
+    await db.connect();
     logger.success('Database connected');
     
     app.listen(PORT, '0.0.0.0', () => {
