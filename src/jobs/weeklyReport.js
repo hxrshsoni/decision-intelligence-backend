@@ -1,6 +1,6 @@
 const RuleEngine = require('../engine/ruleEngine');
 const Scorer = require('../engine/scorer');
-const Database = require('../db');
+const Database = require('../config/database');
 const EmailService = require('../services/emailService');
 const logger = require('../utils/logger');
 

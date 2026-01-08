@@ -1,6 +1,6 @@
 const CSVParser = require('../services/csvParser');
 const DataIngestion = require('../services/dataIngestion');
-const Database = require('../db');
+const Database = require('../config/database');
 const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');

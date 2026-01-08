@@ -1,4 +1,5 @@
-const Database = require('../db');
+const Database = require('../config/database');
+
 const logger = require('../utils/logger');
 
 class DecisionEngine {
