@@ -1,20 +1,11 @@
-const CSVParser = require('../services/csvParser');
-const DataIngestion = require('../services/dataIngestion');
 const Database = require('../config/database');
 const logger = require('../utils/logger');
 const fs = require('fs');
-const path = require('path');
-
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  logger.success('Created uploads directory');
-}
+const csv = require('csv-parser');
 
 class DataController {
-  // Upload clients CSV
-  static async uploadClients(req, res, next) {
+  // Upload Transactions
+  static async uploadTransactions(req, res, next) {
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -23,38 +14,58 @@ class DataController {
         });
       }
 
-      const userId = req.user.id;
-      const filePath = req.file.path;
-
+      const { userId } = req.user;
+      const transactions = [];
+      
       // Parse CSV
-      const rows = await CSVParser.parseFile(filePath);
-      const normalizedData = CSVParser.normalizeClients(rows);
+      await new Promise((resolve, reject) => {
+        fs.createReadStream(req.file.path)
+          .pipe(csv())
+          .on('data', (row) => {
+            transactions.push({
+              amount: parseFloat(row.amount),
+              category: row.category,
+              description: row.description || '',
+              date: row.date,
+              type: row.type || 'expense'
+            });
+          })
+          .on('end', resolve)
+          .on('error', reject);
+      });
 
       // Insert into database
-      const result = await DataIngestion.insertClients(userId, normalizedData);
+      let inserted = 0;
+      for (const transaction of transactions) {
+        try {
+          await Database.query(
+            `INSERT INTO transactions (user_id, amount, category, description, date, type, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+            [userId, transaction.amount, transaction.category, transaction.description, transaction.date, transaction.type]
+          );
+          inserted++;
+        } catch (err) {
+          logger.error('Error inserting transaction:', err);
+        }
+      }
 
       // Delete uploaded file
-      fs.unlink(filePath, (err) => {
-        if (err) logger.error('Failed to delete temp file:', err);
-      });
+      fs.unlinkSync(req.file.path);
 
       res.json({
         success: true,
-        message: 'Clients data uploaded successfully',
-        data: {
-          totalRows: rows.length,
-          inserted: result.insertedCount,
-          skipped: result.skippedCount
-        }
+        message: `Successfully uploaded ${inserted} transactions`,
+        data: { inserted, total: transactions.length }
       });
     } catch (error) {
-      logger.error('Upload clients error:', error);
+      logger.error('Upload transactions error:', error);
+      if (req.file) fs.unlinkSync(req.file.path);
       next(error);
     }
   }
 
-  // Upload engagements CSV
-  static async uploadEngagements(req, res, next) {
+  // Upload Budgets
+  static async uploadBudgets(req, res, next) {
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -63,49 +74,55 @@ class DataController {
         });
       }
 
-      const userId = req.user.id;
-      const filePath = req.file.path;
-
-      // Get existing clients for this user
-      const clientsResult = await Database.query(
-        'SELECT id, name FROM clients WHERE user_id = $1',
-        [userId]
-      );
-
-      const clientMap = new Map();
-      clientsResult.rows.forEach(client => {
-        clientMap.set(client.name.toLowerCase(), client.id);
+      const { userId } = req.user;
+      const budgets = [];
+      
+      await new Promise((resolve, reject) => {
+        fs.createReadStream(req.file.path)
+          .pipe(csv())
+          .on('data', (row) => {
+            budgets.push({
+              category: row.category,
+              amount: parseFloat(row.amount),
+              period: row.period || 'monthly'
+            });
+          })
+          .on('end', resolve)
+          .on('error', reject);
       });
 
-      // Parse CSV
-      const rows = await CSVParser.parseFile(filePath);
-      const normalizedData = CSVParser.normalizeEngagements(rows);
+      let inserted = 0;
+      for (const budget of budgets) {
+        try {
+          await Database.query(
+            `INSERT INTO budgets (user_id, category, amount, period, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, NOW(), NOW())
+             ON CONFLICT (user_id, category) 
+             DO UPDATE SET amount = $3, period = $4, updated_at = NOW()`,
+            [userId, budget.category, budget.amount, budget.period]
+          );
+          inserted++;
+        } catch (err) {
+          logger.error('Error inserting budget:', err);
+        }
+      }
 
-      // Insert into database
-      const result = await DataIngestion.insertEngagements(userId, normalizedData, clientMap);
-
-      // Delete uploaded file
-      fs.unlink(filePath, (err) => {
-        if (err) logger.error('Failed to delete temp file:', err);
-      });
+      fs.unlinkSync(req.file.path);
 
       res.json({
         success: true,
-        message: 'Engagements data uploaded successfully',
-        data: {
-          totalRows: rows.length,
-          inserted: result.insertedCount,
-          skipped: result.skippedCount
-        }
+        message: `Successfully uploaded ${inserted} budgets`,
+        data: { inserted, total: budgets.length }
       });
     } catch (error) {
-      logger.error('Upload engagements error:', error);
+      logger.error('Upload budgets error:', error);
+      if (req.file) fs.unlinkSync(req.file.path);
       next(error);
     }
   }
 
-  // Upload payments CSV
-  static async uploadPayments(req, res, next) {
+  // Upload Goals
+  static async uploadGoals(req, res, next) {
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -114,49 +131,55 @@ class DataController {
         });
       }
 
-      const userId = req.user.id;
-      const filePath = req.file.path;
-
-      // Get existing clients
-      const clientsResult = await Database.query(
-        'SELECT id, name FROM clients WHERE user_id = $1',
-        [userId]
-      );
-
-      const clientMap = new Map();
-      clientsResult.rows.forEach(client => {
-        clientMap.set(client.name.toLowerCase(), client.id);
+      const { userId } = req.user;
+      const goals = [];
+      
+      await new Promise((resolve, reject) => {
+        fs.createReadStream(req.file.path)
+          .pipe(csv())
+          .on('data', (row) => {
+            goals.push({
+              name: row.name,
+              target_amount: parseFloat(row.target_amount),
+              current_amount: parseFloat(row.current_amount || 0),
+              deadline: row.deadline,
+              status: row.status || 'active'
+            });
+          })
+          .on('end', resolve)
+          .on('error', reject);
       });
 
-      // Parse CSV
-      const rows = await CSVParser.parseFile(filePath);
-      const normalizedData = CSVParser.normalizePayments(rows);
+      let inserted = 0;
+      for (const goal of goals) {
+        try {
+          await Database.query(
+            `INSERT INTO goals (user_id, name, target_amount, current_amount, deadline, status, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+            [userId, goal.name, goal.target_amount, goal.current_amount, goal.deadline, goal.status]
+          );
+          inserted++;
+        } catch (err) {
+          logger.error('Error inserting goal:', err);
+        }
+      }
 
-      // Insert into database
-      const result = await DataIngestion.insertPayments(userId, normalizedData, clientMap);
-
-      // Delete uploaded file
-      fs.unlink(filePath, (err) => {
-        if (err) logger.error('Failed to delete temp file:', err);
-      });
+      fs.unlinkSync(req.file.path);
 
       res.json({
         success: true,
-        message: 'Payments data uploaded successfully',
-        data: {
-          totalRows: rows.length,
-          inserted: result.insertedCount,
-          skipped: result.skippedCount
-        }
+        message: `Successfully uploaded ${inserted} goals`,
+        data: { inserted, total: goals.length }
       });
     } catch (error) {
-      logger.error('Upload payments error:', error);
+      logger.error('Upload goals error:', error);
+      if (req.file) fs.unlinkSync(req.file.path);
       next(error);
     }
   }
 
-  // Upload work requests CSV
-  static async uploadWorkRequests(req, res, next) {
+  // Upload Subscriptions
+  static async uploadSubscriptions(req, res, next) {
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -165,66 +188,49 @@ class DataController {
         });
       }
 
-      const userId = req.user.id;
-      const filePath = req.file.path;
-
-      // Get existing clients
-      const clientsResult = await Database.query(
-        'SELECT id, name FROM clients WHERE user_id = $1',
-        [userId]
-      );
-
-      const clientMap = new Map();
-      clientsResult.rows.forEach(client => {
-        clientMap.set(client.name.toLowerCase(), client.id);
+      const { userId } = req.user;
+      const subscriptions = [];
+      
+      await new Promise((resolve, reject) => {
+        fs.createReadStream(req.file.path)
+          .pipe(csv())
+          .on('data', (row) => {
+            subscriptions.push({
+              name: row.name,
+              amount: parseFloat(row.amount),
+              billing_cycle: row.billing_cycle || 'monthly',
+              next_billing_date: row.next_billing_date,
+              is_active: row.is_active !== 'false'
+            });
+          })
+          .on('end', resolve)
+          .on('error', reject);
       });
 
-      // Parse CSV
-      const rows = await CSVParser.parseFile(filePath);
-      const normalizedData = CSVParser.normalizeWorkRequests(rows);
-
-      // Insert into database
-      const result = await DataIngestion.insertWorkRequests(userId, normalizedData, clientMap);
-
-      // Delete uploaded file
-      fs.unlink(filePath, (err) => {
-        if (err) logger.error('Failed to delete temp file:', err);
-      });
-
-      res.json({
-        success: true,
-        message: 'Work requests data uploaded successfully',
-        data: {
-          totalRows: rows.length,
-          inserted: result.insertedCount,
-          skipped: result.skippedCount
+      let inserted = 0;
+      for (const subscription of subscriptions) {
+        try {
+          await Database.query(
+            `INSERT INTO subscriptions (user_id, name, amount, billing_cycle, next_billing_date, is_active, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+            [userId, subscription.name, subscription.amount, subscription.billing_cycle, subscription.next_billing_date, subscription.is_active]
+          );
+          inserted++;
+        } catch (err) {
+          logger.error('Error inserting subscription:', err);
         }
-      });
-    } catch (error) {
-      logger.error('Upload work requests error:', error);
-      next(error);
-    }
-  }
+      }
 
-  // Get all clients for logged-in user
-  static async getClients(req, res, next) {
-    try {
-      const userId = req.user.id;
-
-      const result = await Database.query(
-        `SELECT id, name, email, contract_value, start_date, status, created_at 
-         FROM clients 
-         WHERE user_id = $1 
-         ORDER BY created_at DESC`,
-        [userId]
-      );
+      fs.unlinkSync(req.file.path);
 
       res.json({
         success: true,
-        data: result.rows
+        message: `Successfully uploaded ${inserted} subscriptions`,
+        data: { inserted, total: subscriptions.length }
       });
     } catch (error) {
-      logger.error('Get clients error:', error);
+      logger.error('Upload subscriptions error:', error);
+      if (req.file) fs.unlinkSync(req.file.path);
       next(error);
     }
   }
@@ -232,22 +238,35 @@ class DataController {
   // Get data summary
   static async getDataSummary(req, res, next) {
     try {
-      const userId = req.user.id;
+      const { userId } = req.user;
 
-      const [clients, engagements, payments, workRequests] = await Promise.all([
-        Database.query('SELECT COUNT(*) FROM clients WHERE user_id = $1', [userId]),
-        Database.query('SELECT COUNT(*) FROM engagements WHERE user_id = $1', [userId]),
-        Database.query('SELECT COUNT(*) FROM payments WHERE user_id = $1', [userId]),
-        Database.query('SELECT COUNT(*) FROM work_requests WHERE user_id = $1', [userId])
-      ]);
+      const transactionsCount = await Database.query(
+        'SELECT COUNT(*) as count FROM transactions WHERE user_id = $1',
+        [userId]
+      );
+
+      const budgetsCount = await Database.query(
+        'SELECT COUNT(*) as count FROM budgets WHERE user_id = $1',
+        [userId]
+      );
+
+      const goalsCount = await Database.query(
+        'SELECT COUNT(*) as count FROM goals WHERE user_id = $1',
+        [userId]
+      );
+
+      const subscriptionsCount = await Database.query(
+        'SELECT COUNT(*) as count FROM subscriptions WHERE user_id = $1',
+        [userId]
+      );
 
       res.json({
         success: true,
         data: {
-          clients: parseInt(clients.rows[0].count),
-          engagements: parseInt(engagements.rows[0].count),
-          payments: parseInt(payments.rows[0].count),
-          workRequests: parseInt(workRequests.rows[0].count)
+          transactions: parseInt(transactionsCount.rows[0].count),
+          budgets: parseInt(budgetsCount.rows[0].count),
+          goals: parseInt(goalsCount.rows[0].count),
+          subscriptions: parseInt(subscriptionsCount.rows[0].count)
         }
       });
     } catch (error) {
